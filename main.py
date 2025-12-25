@@ -30,7 +30,7 @@ from tqdm import tqdm
 init()
 
 # Import local modules
-from crawler import crawl_for_pdfs, PDFInfo
+from crawler import PDFInfo
 from pdf_processor import PDFProcessor, PDFDocument
 from unredactor import Unredactor, UnredactionResult
 from ai_classifier import AIClassifier, ClassifiedEntity
@@ -92,64 +92,30 @@ def extract_zip_file(zip_path: str) -> str:
 
 
 def interactive_prompt() -> dict:
-    """Prompt user for input interactively"""
+    """Prompt user for zip file path interactively"""
     print(f"\n{Fore.CYAN}{'='*60}")
-    print(f" Interactive Mode")
+    print(f" PDF Unredactor - Interactive Mode")
     print(f"{'='*60}{Style.RESET_ALL}\n")
     
     args = argparse.Namespace()
-    
-    # Ask for source type
-    print(f"{Fore.YELLOW}Choose input source:{Style.RESET_ALL}")
-    print("  1. Zip file containing PDFs")
-    print("  2. Local directory with PDFs")
-    print("  3. Website URL to crawl")
-    
-    while True:
-        choice = input(f"\n{Fore.CYAN}Enter choice (1-3): {Style.RESET_ALL}").strip()
-        if choice in ['1', '2', '3']:
-            break
-        print(f"{Fore.RED}Invalid choice. Please enter 1, 2, or 3.{Style.RESET_ALL}")
-    
     args.url = None
     args.pdf_dir = None
     args.zip_file = None
+    args.depth = 3
     
-    if choice == '1':
-        # Zip file
-        while True:
-            zip_path = input(f"\n{Fore.CYAN}Enter path to zip file: {Style.RESET_ALL}").strip()
-            zip_path = os.path.expanduser(zip_path)
-            if os.path.exists(zip_path):
-                args.zip_file = zip_path
-                break
-            print(f"{Fore.RED}File not found. Please enter a valid path.{Style.RESET_ALL}")
-            
-    elif choice == '2':
-        # Local directory
-        while True:
-            dir_path = input(f"\n{Fore.CYAN}Enter path to PDF directory: {Style.RESET_ALL}").strip()
-            dir_path = os.path.expanduser(dir_path)
-            if os.path.isdir(dir_path):
-                args.pdf_dir = dir_path
-                break
-            print(f"{Fore.RED}Directory not found. Please enter a valid path.{Style.RESET_ALL}")
-            
-    else:
-        # Website URL
-        args.url = input(f"\n{Fore.CYAN}Enter website URL to crawl: {Style.RESET_ALL}").strip()
+    # Ask for zip file path
+    while True:
+        zip_path = input(f"{Fore.CYAN}Enter path to zip file containing PDFs: {Style.RESET_ALL}").strip()
+        zip_path = os.path.expanduser(zip_path)
+        if os.path.exists(zip_path):
+            args.zip_file = zip_path
+            break
+        print(f"{Fore.RED}File not found. Please enter a valid path.{Style.RESET_ALL}")
     
     # Ask for topic
-    args.topic = input(f"\n{Fore.CYAN}Enter topic/keywords to search for: {Style.RESET_ALL}").strip()
+    args.topic = input(f"\n{Fore.CYAN}Enter topic/keywords to search for (or press Enter for all): {Style.RESET_ALL}").strip()
     if not args.topic:
-        args.topic = "document"  # Default topic
-    
-    # Ask for depth if URL
-    if args.url:
-        depth_input = input(f"\n{Fore.CYAN}Enter crawl depth (default 3): {Style.RESET_ALL}").strip()
-        args.depth = int(depth_input) if depth_input.isdigit() else 3
-    else:
-        args.depth = 3
+        args.topic = "document"  # Default - process all
     
     # Output options
     args.excel = True
@@ -236,22 +202,20 @@ def run_pipeline(args) -> Dict:
     
     # Step 1: Get PDFs
     print(f"\n{Fore.CYAN}{'='*60}")
-    print(f" STEP 1: PDF Discovery")
+    print(f" STEP 1: Extract & Load PDFs")
     print(f"{'='*60}{Style.RESET_ALL}")
     
-    # Handle zip file extraction first
+    # Handle zip file extraction
     pdf_dir = args.pdf_dir
     if hasattr(args, 'zip_file') and args.zip_file:
         pdf_dir = extract_zip_file(args.zip_file)
         if not pdf_dir:
             return results
     
-    if args.url:
-        pdf_infos = crawl_for_pdfs(args.url, args.topic, args.depth)
-    elif pdf_dir:
+    if pdf_dir:
         pdf_infos = process_pdfs_from_directory(pdf_dir, args.topic)
     else:
-        print(f"{Fore.RED}Error: Must provide --url, --pdf-dir, or --zip{Style.RESET_ALL}")
+        print(f"{Fore.RED}Error: Must provide --zip or --dir{Style.RESET_ALL}")
         return results
     
     if not pdf_infos:
@@ -360,21 +324,18 @@ def run_pipeline(args) -> Dict:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description="PDF Unredactor - Crawl websites, unredact PDFs, and classify entities",
+        description="PDF Unredactor - Extract PDFs from zip, detect redactions, and classify entities",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  Interactive mode (prompts for input):
+  Interactive mode (prompts for zip file path):
     python main.py
   
   Extract and process PDFs from a zip file:
     python main.py --zip "~/documents.zip" --topic "fraud investigation"
   
-  Crawl a website for PDFs about a topic:
-    python main.py --url "https://example.com/documents" --topic "fraud investigation"
-  
-  Process local PDFs:
-    python main.py --pdf-dir "./documents" --topic "financial scandal"
+  Process local directory:
+    python main.py --dir "./documents" --topic "financial scandal"
 
 Environment:
   Create a .env file with:
@@ -383,36 +344,25 @@ Environment:
         """
     )
     
-    # Input source (mutually exclusive) - not required, will use interactive mode
+    # Input source - not required, will use interactive mode
     source_group = parser.add_mutually_exclusive_group(required=False)
-    source_group.add_argument(
-        "--url", "-u",
-        help="Base URL to start crawling from"
-    )
-    source_group.add_argument(
-        "--pdf-dir", "-d",
-        help="Local directory containing PDFs to process"
-    )
     source_group.add_argument(
         "--zip", "-z",
         dest="zip_file",
         help="Zip file containing PDFs to extract and process"
+    )
+    source_group.add_argument(
+        "--dir", "-d",
+        dest="pdf_dir",
+        help="Local directory containing PDFs to process"
     )
     
     # Topic
     parser.add_argument(
         "--topic", "-t",
         required=False,
-        default="",
+        default="document",
         help="Topic to search for (used for relevance filtering)"
-    )
-    
-    # Crawler options
-    parser.add_argument(
-        "--depth",
-        type=int,
-        default=3,
-        help="Maximum crawl depth (default: 3)"
     )
     
     # Output options
@@ -444,15 +394,14 @@ Environment:
     print_banner()
     
     # Check if we need interactive mode (no source provided)
-    if not args.url and not args.pdf_dir and not args.zip_file:
-        print(f"{Fore.YELLOW}No input source specified. Starting interactive mode...{Style.RESET_ALL}")
+    if not args.pdf_dir and not args.zip_file:
         args = interactive_prompt()
     
-    # Validate topic is provided
-    if not args.topic:
-        args.topic = input(f"\n{Fore.CYAN}Enter topic/keywords to search for: {Style.RESET_ALL}").strip()
-        if not args.topic:
-            args.topic = "document"
+    # Ensure we have required attributes
+    if not hasattr(args, 'url'):
+        args.url = None
+    if not hasattr(args, 'depth'):
+        args.depth = 3
     
     # Handle --no-excel flag
     if hasattr(args, 'no_excel') and args.no_excel:
