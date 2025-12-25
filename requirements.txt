@@ -1,0 +1,31 @@
+# Web Crawling
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+urllib3>=2.0.0
+lxml>=4.9.0
+
+# PDF Processing
+PyMuPDF>=1.23.0  # fitz library for PDF manipulation
+pdfplumber>=0.10.0
+pdf2image>=1.16.0
+pikepdf>=8.0.0  # For PDF layer manipulation
+
+# OCR and Image Processing
+pytesseract>=0.3.10
+Pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# AI/LLM Integration
+openai>=1.0.0
+
+# Data Organization
+pandas>=2.0.0
+tabulate>=0.9.0
+openpyxl>=3.1.0  # Excel export
+
+# Utilities
+tqdm>=4.65.0
+python-dotenv>=1.0.0
+colorama>=0.4.6
+
