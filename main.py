@@ -136,8 +136,14 @@ def interactive_prompt() -> dict:
     args.csv = csv_choice in ['y', 'yes']
     
     # Ask about fast mode
-    fast_choice = input(f"\n{Fore.CYAN}Use fast mode? (skips slow OCR, recommended for large files) (Y/n): {Style.RESET_ALL}").strip().lower()
+    fast_choice = input(f"\n{Fore.CYAN}Use fast mode? (skips slow OCR, recommended) (Y/n): {Style.RESET_ALL}").strip().lower()
     args.fast = fast_choice not in ['n', 'no']
+    
+    # Ask about AI classification
+    ai_choice = input(f"\n{Fore.CYAN}Run AI classification? (identifies PEPs/victims, needs ~6GB RAM) (y/N): {Style.RESET_ALL}").strip().lower()
+    args.skip_ai = ai_choice not in ['y', 'yes']
+    
+    args.model_name = None
     
     return args
 
@@ -146,9 +152,15 @@ def validate_environment() -> bool:
     """Validate that required tools and configurations are available"""
     issues = []
     
-    # Check Gemini API key
-    if not config.GEMINI_API_KEY:
-        issues.append("GEMINI_API_KEY not set. Create a .env file with your API key.")
+    # Check if torch is available
+    try:
+        import torch
+        if torch.cuda.is_available():
+            print(f"  GPU available: {torch.cuda.get_device_name(0)}")
+        else:
+            print(f"  Running on CPU (slower, but works)")
+    except ImportError:
+        issues.append("PyTorch not installed. Run: pip install torch")
     
     # Check tesseract
     try:
@@ -168,8 +180,8 @@ def validate_environment() -> bool:
         for issue in issues:
             print(f"  • {issue}")
         
-        if "GEMINI_API_KEY" in str(issues):
-            print(f"\n{Fore.RED}Cannot proceed without Gemini API key.{Style.RESET_ALL}")
+        if "PyTorch" in str(issues):
+            print(f"\n{Fore.RED}Cannot proceed without PyTorch.{Style.RESET_ALL}")
             return False
     
     return True
@@ -263,7 +275,7 @@ def run_pipeline(args) -> Dict:
     
     processor = PDFProcessor()
     unredactor = Unredactor()
-    classifier = AIClassifier() if config.GEMINI_API_KEY else None
+    classifier = None  # Will be loaded on first use to save memory
     
     # Store minimal info for final report
     pdf_docs: List[PDFDocument] = []
@@ -289,9 +301,13 @@ def run_pipeline(args) -> Dict:
                 unredact_results = []
                 all_unredaction_results[pdf_doc.filepath] = []
             
-            # Step 3: Classify entities
-            if classifier:
+            # Step 3: Classify entities (load model on first use)
+            if not hasattr(args, 'skip_ai') or not args.skip_ai:
                 try:
+                    if classifier is None:
+                        print(f"\n{Fore.CYAN}Loading AI model for classification...{Style.RESET_ALL}")
+                        model_name = args.model_name if hasattr(args, 'model_name') else None
+                        classifier = AIClassifier(model_name)
                     entities = classifier.classify_document(pdf_doc, unredact_results)
                     all_entities.extend(entities)
                     results["entities_classified"] += len(entities)
@@ -314,9 +330,6 @@ def run_pipeline(args) -> Dict:
     if not pdf_docs:
         print(f"{Fore.YELLOW}No PDFs could be processed.{Style.RESET_ALL}")
         return results
-    
-    if not classifier:
-        print(f"{Fore.YELLOW}Skipping AI classification (no API key){Style.RESET_ALL}")
     
     # Step 5: Generate Reports
     print(f"\n{Fore.CYAN}{'='*60}")
@@ -365,10 +378,10 @@ Examples:
   Process local directory:
     python main.py --dir "./documents" --topic "financial scandal"
 
-Environment:
-  Create a .env file with:
-    GEMINI_API_KEY=your-api-key-here
-  Get your key at: https://aistudio.google.com/apikey
+Models (set HF_MODEL in .env or use --model):
+  microsoft/phi-2            - ~6GB RAM (default, fast)
+  mistralai/Mistral-7B       - ~16GB RAM (better quality)
+  openai/gpt-oss-120b        - ~240GB RAM (best, needs server)
         """
     )
     
@@ -405,6 +418,21 @@ Environment:
         "--fast", "-f",
         action="store_true",
         help="Fast mode - skip slow OCR enhancement (uses less memory/CPU)"
+    )
+    
+    # Skip AI classification
+    parser.add_argument(
+        "--skip-ai",
+        action="store_true",
+        dest="skip_ai",
+        help="Skip AI classification (just extract redactions, no PEP/victim analysis)"
+    )
+    
+    # Custom model
+    parser.add_argument(
+        "--model", "-m",
+        dest="model_name",
+        help="HuggingFace model to use (default: microsoft/phi-2)"
     )
     
     # Output options

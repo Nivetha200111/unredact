@@ -17,7 +17,10 @@ opencv-python>=4.8.0
 numpy>=1.24.0
 
 # AI/LLM Integration
-google-generativeai>=0.8.0
+transformers>=4.40.0
+torch>=2.0.0
+accelerate>=0.27.0
+bitsandbytes>=0.42.0  # For 4-bit quantization (saves memory)
 
 # Data Organization
 pandas>=2.0.0

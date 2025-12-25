@@ -6,9 +6,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Gemini Configuration
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-1.5-flash"
+# Local LLM Configuration (Hugging Face)
+# Options: "openai/gpt-oss-120b" (needs 240GB+ RAM)
+#          "mistralai/Mistral-7B-Instruct-v0.2" (needs ~16GB RAM)
+#          "microsoft/phi-2" (needs ~6GB RAM - recommended for laptops)
+HF_MODEL = os.getenv("HF_MODEL", "microsoft/phi-2")
+USE_4BIT_QUANTIZATION = True  # Reduces memory by 4x
+DEVICE_MAP = "auto"  # Automatically distribute across GPU/CPU
 
 # Crawler Configuration
 MAX_DEPTH = 5
