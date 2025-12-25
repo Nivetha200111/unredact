@@ -59,7 +59,7 @@ def print_banner():
 
 
 def extract_zip_file(zip_path: str) -> str:
-    """Extract a zip file and return the path to extracted contents"""
+    """Extract a zip file and return the path to extracted contents (with caching)"""
     zip_path = Path(zip_path).expanduser().resolve()
     
     if not zip_path.exists():
@@ -72,6 +72,16 @@ def extract_zip_file(zip_path: str) -> str:
     
     # Extract to a subdirectory in downloads
     extract_dir = Path(config.DOWNLOADS_DIR) / f"extracted_{zip_path.stem}"
+    
+    # Check if already extracted (cache check)
+    if extract_dir.exists():
+        existing_pdfs = list(extract_dir.rglob("*.pdf"))
+        if existing_pdfs:
+            print(f"\n{Fore.GREEN}✓ Using cached extraction: {extract_dir}")
+            print(f"  Found {len(existing_pdfs)} PDFs already extracted")
+            print(f"  (Delete this folder to force re-extraction){Style.RESET_ALL}")
+            return str(extract_dir)
+    
     extract_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"\n{Fore.CYAN}Extracting zip file...{Style.RESET_ALL}")
@@ -214,6 +224,23 @@ def process_pdfs_from_directory(pdf_dir: str, topic: str) -> List[PDFInfo]:
     return pdf_files
 
 
+def load_cache(cache_file: Path) -> Dict:
+    """Load processing cache from file"""
+    if cache_file.exists():
+        try:
+            import json
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {"processed_files": [], "results": {}}
+
+def save_cache(cache_file: Path, cache_data: Dict):
+    """Save processing cache to file"""
+    import json
+    with open(cache_file, 'w') as f:
+        json.dump(cache_data, f)
+
 def run_pipeline(args) -> Dict:
     """Run the complete unredaction pipeline"""
     import gc  # For memory cleanup
@@ -270,12 +297,21 @@ def run_pipeline(args) -> Dict:
     
     # Process PDFs one at a time to save memory
     print(f"\n{Fore.CYAN}{'='*60}")
-    print(f" Processing PDFs (memory-optimized, one at a time)")
+    print(f" Processing PDFs (memory-optimized, with caching)")
     print(f"{'='*60}{Style.RESET_ALL}")
     
     processor = PDFProcessor()
     unredactor = Unredactor()
     classifier = None  # Will be loaded on first use to save memory
+    
+    # Load cache for resumable processing
+    cache_file = Path(config.OUTPUT_DIR) / "processing_cache.json"
+    cache = load_cache(cache_file)
+    already_processed = set(cache.get("processed_files", []))
+    
+    if already_processed:
+        print(f"{Fore.GREEN}✓ Found cache: {len(already_processed)} PDFs already processed")
+        print(f"  (Delete {cache_file} to reprocess all){Style.RESET_ALL}")
     
     # Store minimal info for final report
     pdf_docs: List[PDFDocument] = []
@@ -283,8 +319,16 @@ def run_pipeline(args) -> Dict:
     all_entities: List[ClassifiedEntity] = []
     
     total_pdfs = len(pdf_infos)
+    skipped = 0
     
     for idx, pdf_info in enumerate(pdf_infos):
+        # Skip if already processed (cache hit)
+        if pdf_info.filename in already_processed:
+            skipped += 1
+            if skipped <= 5 or skipped % 100 == 0:
+                print(f"{Fore.BLUE}[{idx+1}/{total_pdfs}] Skipping (cached): {pdf_info.filename}{Style.RESET_ALL}")
+            continue
+        
         print(f"\n{Fore.YELLOW}[{idx+1}/{total_pdfs}] Processing: {pdf_info.filename}{Style.RESET_ALL}")
         
         try:
@@ -320,6 +364,11 @@ def run_pipeline(args) -> Dict:
             pdf_docs.append(pdf_doc)
             results["pdfs_processed"] += 1
             
+            # Save to cache after each successful processing
+            cache["processed_files"].append(pdf_info.filename)
+            if idx % 10 == 0:  # Save cache every 10 files
+                save_cache(cache_file, cache)
+            
             # Free memory
             gc.collect()
             
@@ -327,7 +376,13 @@ def run_pipeline(args) -> Dict:
             print(f"{Fore.RED}  Error: {e}{Style.RESET_ALL}")
             continue
     
-    if not pdf_docs:
+    # Final cache save
+    save_cache(cache_file, cache)
+    
+    if skipped > 0:
+        print(f"\n{Fore.BLUE}Skipped {skipped} already-processed PDFs (from cache){Style.RESET_ALL}")
+    
+    if not pdf_docs and skipped == 0:
         print(f"{Fore.YELLOW}No PDFs could be processed.{Style.RESET_ALL}")
         return results
     

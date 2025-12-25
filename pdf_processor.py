@@ -57,10 +57,10 @@ class PDFProcessor:
         os.makedirs(config.TEMP_DIR, exist_ok=True)
         
     def _detect_black_regions(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
-        """Detect black rectangular regions in an image"""
+        """Detect black rectangular regions in an image (redaction boxes)"""
         # Convert to grayscale
         if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         else:
             gray = image
             
@@ -73,21 +73,23 @@ class PDFProcessor:
         black_regions = []
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < config.MIN_REDACTION_AREA:
+            if area < 500:  # Minimum area for a redaction
                 continue
                 
             x, y, w, h = cv2.boundingRect(contour)
             
-            # Check aspect ratio - redactions are usually wider than tall
+            # Filter for reasonable redaction shapes
             aspect = w / max(h, 1)
-            if aspect > config.REDACTION_ASPECT_RATIO_MAX:
+            if aspect > 50 or aspect < 0.5:  # Too extreme aspect ratio
+                continue
+            if w < 20 or h < 5:  # Too small
                 continue
                 
-            # Check if region is mostly black (not just an edge)
+            # Check if region is mostly black
             roi = gray[y:y+h, x:x+w]
-            black_ratio = np.sum(roi < config.BLACK_THRESHOLD) / (w * h)
+            black_ratio = np.sum(roi < config.BLACK_THRESHOLD) / max(w * h, 1)
             
-            if black_ratio > 0.7:  # 70% of region is black
+            if black_ratio > 0.6:  # 60% of region is black
                 black_regions.append((x, y, x + w, y + h))
                 
         return black_regions
@@ -273,8 +275,8 @@ class PDFProcessor:
                 if redaction.page_num == page_num and redaction.underlying_text is None:
                     redaction.underlying_text = self._extract_text_under_redaction(page, redaction.bbox)
         
-        # Convert to images and detect black regions (skip in fast mode - very slow/memory intensive)
-        if not config.SKIP_OCR_ENHANCEMENT:
+        # Convert to images and detect black regions (essential for finding redactions)
+        if True:  # Always run - this is how we find black box redactions
             try:
                 images = convert_from_path(filepath, dpi=config.OCR_DPI)
                 for page_num, pil_image in enumerate(images):

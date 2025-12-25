@@ -36,7 +36,8 @@ OCR_DPI = 150  # Lower DPI for faster processing (was 300)
 OCR_LANG = "eng"
 
 # Performance Settings
-SKIP_OCR_ENHANCEMENT = False  # Set True to skip slow OCR processing
+SKIP_OCR_ENHANCEMENT = False  # Set True to skip slow OCR text recovery (not detection)
+SKIP_IMAGE_DETECTION = False  # Never skip - required for scanned PDFs
 MAX_PAGES_TO_PROCESS = None  # Limit pages per PDF (None = all)
 
 # Classification Categories
