@@ -342,8 +342,8 @@ class Unredactor:
                         method_used = "image_analysis"
                         confidence = 0.6
                 
-                # Method 5: OCR enhancement (slower, try last)
-                if not recovered_text:
+                # Method 5: OCR enhancement (slower, try last) - skip if fast mode
+                if not recovered_text and not config.SKIP_OCR_ENHANCEMENT:
                     text = self._try_ocr_enhancement(pdf_doc.filepath, redaction)
                     if text:
                         recovered_text = text

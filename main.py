@@ -112,6 +112,16 @@ def interactive_prompt() -> dict:
             break
         print(f"{Fore.RED}File not found. Please enter a valid path.{Style.RESET_ALL}")
     
+    # Ask for output directory (for hard drive storage)
+    print(f"\n{Fore.YELLOW}Where should output be saved? (Leave empty for current directory){Style.RESET_ALL}")
+    output_path = input(f"{Fore.CYAN}Output directory path: {Style.RESET_ALL}").strip()
+    if output_path:
+        output_path = os.path.expanduser(output_path)
+        os.makedirs(output_path, exist_ok=True)
+        args.output_dir = output_path
+    else:
+        args.output_dir = None
+    
     # Ask for topic
     args.topic = input(f"\n{Fore.CYAN}Enter topic/keywords to search for (or press Enter for all): {Style.RESET_ALL}").strip()
     if not args.topic:
@@ -124,6 +134,10 @@ def interactive_prompt() -> dict:
     
     csv_choice = input(f"\n{Fore.CYAN}Also export to CSV? (y/N): {Style.RESET_ALL}").strip().lower()
     args.csv = csv_choice in ['y', 'yes']
+    
+    # Ask about fast mode
+    fast_choice = input(f"\n{Fore.CYAN}Use fast mode? (skips slow OCR, recommended for large files) (Y/n): {Style.RESET_ALL}").strip().lower()
+    args.fast = fast_choice not in ['n', 'no']
     
     return args
 
@@ -190,6 +204,8 @@ def process_pdfs_from_directory(pdf_dir: str, topic: str) -> List[PDFInfo]:
 
 def run_pipeline(args) -> Dict:
     """Run the complete unredaction pipeline"""
+    import gc  # For memory cleanup
+    
     results = {
         "pdfs_found": 0,
         "pdfs_processed": 0,
@@ -199,6 +215,22 @@ def run_pipeline(args) -> Dict:
         "peps_found": 0,
         "victims_found": 0
     }
+    
+    # Set custom output directory if provided
+    if hasattr(args, 'output_dir') and args.output_dir:
+        config.OUTPUT_DIR = args.output_dir
+        config.DOWNLOADS_DIR = os.path.join(args.output_dir, "downloads")
+        config.TEMP_DIR = os.path.join(args.output_dir, "temp")
+        os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+        os.makedirs(config.DOWNLOADS_DIR, exist_ok=True)
+        os.makedirs(config.TEMP_DIR, exist_ok=True)
+        print(f"\n{Fore.GREEN}Output will be saved to: {config.OUTPUT_DIR}{Style.RESET_ALL}")
+    
+    # Enable fast mode if requested
+    if hasattr(args, 'fast') and args.fast:
+        config.SKIP_OCR_ENHANCEMENT = True
+        config.OCR_DPI = 100
+        print(f"{Fore.YELLOW}Fast mode enabled - skipping slow OCR processing{Style.RESET_ALL}")
     
     # Step 1: Get PDFs
     print(f"\n{Fore.CYAN}{'='*60}")
@@ -224,70 +256,66 @@ def run_pipeline(args) -> Dict:
     
     results["pdfs_found"] = len(pdf_infos)
     
-    # Step 2: Process PDFs and detect redactions
+    # Process PDFs one at a time to save memory
     print(f"\n{Fore.CYAN}{'='*60}")
-    print(f" STEP 2: PDF Processing & Redaction Detection")
+    print(f" Processing PDFs (memory-optimized, one at a time)")
     print(f"{'='*60}{Style.RESET_ALL}")
     
     processor = PDFProcessor()
+    unredactor = Unredactor()
+    classifier = AIClassifier() if config.GEMINI_API_KEY else None
+    
+    # Store minimal info for final report
     pdf_docs: List[PDFDocument] = []
+    all_unredaction_results: Dict[str, List[UnredactionResult]] = {}
+    all_entities: List[ClassifiedEntity] = []
     
-    for pdf_info in tqdm(pdf_infos, desc="Processing PDFs"):
+    total_pdfs = len(pdf_infos)
+    
+    for idx, pdf_info in enumerate(pdf_infos):
+        print(f"\n{Fore.YELLOW}[{idx+1}/{total_pdfs}] Processing: {pdf_info.filename}{Style.RESET_ALL}")
+        
         try:
+            # Step 1: Process PDF
             pdf_doc = processor.process_pdf(pdf_info.local_path)
-            pdf_docs.append(pdf_doc)
             results["redactions_found"] += len(pdf_doc.redactions)
+            
+            # Step 2: Unredact
+            if pdf_doc.redactions:
+                unredact_results = unredactor.unredact(pdf_doc)
+                all_unredaction_results[pdf_doc.filepath] = unredact_results
+                results["redactions_recovered"] += sum(1 for r in unredact_results if r.success)
+            else:
+                unredact_results = []
+                all_unredaction_results[pdf_doc.filepath] = []
+            
+            # Step 3: Classify entities
+            if classifier:
+                try:
+                    entities = classifier.classify_document(pdf_doc, unredact_results)
+                    all_entities.extend(entities)
+                    results["entities_classified"] += len(entities)
+                    results["peps_found"] += sum(1 for e in entities if e.entity_type.value == "PEP")
+                    results["victims_found"] += sum(1 for e in entities if e.entity_type.value == "VICTIM")
+                except Exception as e:
+                    print(f"{Fore.RED}  Classification error: {e}{Style.RESET_ALL}")
+            
+            # Keep minimal doc info for report
+            pdf_docs.append(pdf_doc)
+            results["pdfs_processed"] += 1
+            
+            # Free memory
+            gc.collect()
+            
         except Exception as e:
-            print(f"\n{Fore.RED}  Error processing {pdf_info.filename}: {e}{Style.RESET_ALL}")
-    
-    results["pdfs_processed"] = len(pdf_docs)
+            print(f"{Fore.RED}  Error: {e}{Style.RESET_ALL}")
+            continue
     
     if not pdf_docs:
         print(f"{Fore.YELLOW}No PDFs could be processed.{Style.RESET_ALL}")
         return results
     
-    # Step 3: Attempt unredaction
-    print(f"\n{Fore.CYAN}{'='*60}")
-    print(f" STEP 3: Unredaction Attempts")
-    print(f"{'='*60}{Style.RESET_ALL}")
-    
-    unredactor = Unredactor()
-    all_unredaction_results: Dict[str, List[UnredactionResult]] = {}
-    
-    for pdf_doc in pdf_docs:
-        if pdf_doc.redactions:
-            try:
-                unredact_results = unredactor.unredact(pdf_doc)
-                all_unredaction_results[pdf_doc.filepath] = unredact_results
-                results["redactions_recovered"] += sum(1 for r in unredact_results if r.success)
-            except Exception as e:
-                print(f"\n{Fore.RED}  Error unredacting {pdf_doc.filename}: {e}{Style.RESET_ALL}")
-                all_unredaction_results[pdf_doc.filepath] = []
-        else:
-            all_unredaction_results[pdf_doc.filepath] = []
-    
-    # Step 4: AI Classification
-    print(f"\n{Fore.CYAN}{'='*60}")
-    print(f" STEP 4: AI Entity Classification (PEP/Victim)")
-    print(f"{'='*60}{Style.RESET_ALL}")
-    
-    all_entities: List[ClassifiedEntity] = []
-    
-    if config.GEMINI_API_KEY:
-        classifier = AIClassifier()
-        
-        for pdf_doc in pdf_docs:
-            try:
-                doc_results = all_unredaction_results.get(pdf_doc.filepath, [])
-                entities = classifier.classify_document(pdf_doc, doc_results)
-                all_entities.extend(entities)
-            except Exception as e:
-                print(f"\n{Fore.RED}  Error classifying {pdf_doc.filename}: {e}{Style.RESET_ALL}")
-        
-        results["entities_classified"] = len(all_entities)
-        results["peps_found"] = sum(1 for e in all_entities if e.entity_type.value == "PEP")
-        results["victims_found"] = sum(1 for e in all_entities if e.entity_type.value == "VICTIM")
-    else:
+    if not classifier:
         print(f"{Fore.YELLOW}Skipping AI classification (no API key){Style.RESET_ALL}")
     
     # Step 5: Generate Reports
@@ -363,6 +391,20 @@ Environment:
         required=False,
         default="document",
         help="Topic to search for (used for relevance filtering)"
+    )
+    
+    # Output directory (for storing on external drive)
+    parser.add_argument(
+        "--output", "-o",
+        dest="output_dir",
+        help="Output directory path (e.g., /mnt/harddrive/unredact_output)"
+    )
+    
+    # Fast mode - skip slow OCR processing
+    parser.add_argument(
+        "--fast", "-f",
+        action="store_true",
+        help="Fast mode - skip slow OCR enhancement (uses less memory/CPU)"
     )
     
     # Output options

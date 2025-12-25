@@ -273,45 +273,50 @@ class PDFProcessor:
                 if redaction.page_num == page_num and redaction.underlying_text is None:
                     redaction.underlying_text = self._extract_text_under_redaction(page, redaction.bbox)
         
-        # Convert to images and detect black regions
-        try:
-            images = convert_from_path(filepath, dpi=150)
-            for page_num, pil_image in enumerate(images):
-                img_array = np.array(pil_image)
-                black_regions = self._detect_black_regions(img_array)
-                
-                # Scale coordinates back to PDF space
-                page = doc.load_page(page_num)
-                pdf_width = page.rect.width
-                pdf_height = page.rect.height
-                img_height, img_width = img_array.shape[:2]
-                
-                scale_x = pdf_width / img_width
-                scale_y = pdf_height / img_height
-                
-                for x0, y0, x1, y1 in black_regions:
-                    # Check if this region overlaps with existing redactions
-                    pdf_bbox = (x0 * scale_x, y0 * scale_y, x1 * scale_x, y1 * scale_y)
+        # Convert to images and detect black regions (skip in fast mode - very slow/memory intensive)
+        if not config.SKIP_OCR_ENHANCEMENT:
+            try:
+                images = convert_from_path(filepath, dpi=config.OCR_DPI)
+                for page_num, pil_image in enumerate(images):
+                    img_array = np.array(pil_image)
+                    black_regions = self._detect_black_regions(img_array)
                     
-                    is_duplicate = False
-                    for existing in all_redactions:
-                        if existing.page_num == page_num:
-                            # Check overlap
-                            ex0, ey0, ex1, ey1 = existing.bbox
-                            if (pdf_bbox[0] < ex1 and pdf_bbox[2] > ex0 and
-                                pdf_bbox[1] < ey1 and pdf_bbox[3] > ey0):
-                                is_duplicate = True
-                                break
+                    # Scale coordinates back to PDF space
+                    page = doc.load_page(page_num)
+                    pdf_width = page.rect.width
+                    pdf_height = page.rect.height
+                    img_height, img_width = img_array.shape[:2]
                     
-                    if not is_duplicate:
-                        all_redactions.append(RedactionArea(
-                            page_num=page_num,
-                            bbox=pdf_bbox,
-                            redaction_type=RedactionType.BLACK_BOX,
-                            confidence=0.7
-                        ))
-        except Exception as e:
-            print(f"    Warning: Could not process images for {filename}: {e}")
+                    scale_x = pdf_width / img_width
+                    scale_y = pdf_height / img_height
+                    
+                    for x0, y0, x1, y1 in black_regions:
+                        # Check if this region overlaps with existing redactions
+                        pdf_bbox = (x0 * scale_x, y0 * scale_y, x1 * scale_x, y1 * scale_y)
+                        
+                        is_duplicate = False
+                        for existing in all_redactions:
+                            if existing.page_num == page_num:
+                                # Check overlap
+                                ex0, ey0, ex1, ey1 = existing.bbox
+                                if (pdf_bbox[0] < ex1 and pdf_bbox[2] > ex0 and
+                                    pdf_bbox[1] < ey1 and pdf_bbox[3] > ey0):
+                                    is_duplicate = True
+                                    break
+                        
+                        if not is_duplicate:
+                            all_redactions.append(RedactionArea(
+                                page_num=page_num,
+                                bbox=pdf_bbox,
+                                redaction_type=RedactionType.BLACK_BOX,
+                                confidence=0.7
+                            ))
+                    # Free memory after each page
+                    del img_array
+                    del pil_image
+                del images
+            except Exception as e:
+                print(f"    Warning: Could not process images for {filename}: {e}")
         
         doc.close()
         

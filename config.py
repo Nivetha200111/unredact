@@ -28,8 +28,12 @@ REDACTION_ASPECT_RATIO_MAX = 50  # max width/height ratio for redactions
 
 # OCR Settings
 TESSERACT_CMD = None  # Set path if not in system PATH
-OCR_DPI = 300
+OCR_DPI = 150  # Lower DPI for faster processing (was 300)
 OCR_LANG = "eng"
+
+# Performance Settings
+SKIP_OCR_ENHANCEMENT = False  # Set True to skip slow OCR processing
+MAX_PAGES_TO_PROCESS = None  # Limit pages per PDF (None = all)
 
 # Classification Categories
 CLASSIFICATION_CATEGORIES = ["PEP", "VICTIM", "UNKNOWN", "OTHER"]
