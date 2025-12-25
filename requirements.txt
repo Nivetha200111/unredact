@@ -17,7 +17,7 @@ opencv-python>=4.8.0
 numpy>=1.24.0
 
 # AI/LLM Integration
-openai>=1.0.0
+google-generativeai>=0.8.0
 
 # Data Organization
 pandas>=2.0.0

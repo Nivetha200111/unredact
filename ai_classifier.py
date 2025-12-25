@@ -1,5 +1,5 @@
 """
-AI Classification Module - Uses GPT-4 to classify entities as PEP or Victim
+AI Classification Module - Uses Gemini to classify entities as PEP or Victim
 """
 import json
 import re
@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from openai import OpenAI
+import google.generativeai as genai
 
 import config
 from pdf_processor import PDFDocument
@@ -38,17 +38,17 @@ class ClassifiedEntity:
 
 class AIClassifier:
     """
-    Uses GPT-4 to analyze text and classify mentioned entities
+    Uses Gemini to analyze text and classify mentioned entities
     as either PEPs (Politically Exposed Persons) or victims
     """
     
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or config.OPENAI_API_KEY
+        self.api_key = api_key or config.GEMINI_API_KEY
         if not self.api_key:
-            raise ValueError("OpenAI API key not provided. Set OPENAI_API_KEY in .env file.")
+            raise ValueError("Gemini API key not provided. Set GEMINI_API_KEY in .env file.")
         
-        self.client = OpenAI(api_key=self.api_key)
-        self.model = config.OPENAI_MODEL
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel(config.GEMINI_MODEL)
     
     def _extract_entities_prompt(self, text: str, context: str = "") -> str:
         """Create prompt for entity extraction"""
@@ -122,26 +122,22 @@ Respond in JSON format:
     "redaction_reason": "Overall reason for redaction"
 }}"""
     
-    def _call_gpt(self, prompt: str) -> Optional[Dict]:
-        """Make a call to GPT-4 and parse the JSON response"""
+    def _call_gemini(self, prompt: str) -> Optional[Dict]:
+        """Make a call to Gemini and parse the JSON response"""
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert analyst specializing in identifying Politically Exposed Persons (PEPs) and victims in legal and financial documents. Always respond with valid JSON."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.3,
-                max_tokens=2000
+            full_prompt = f"""You are an expert analyst specializing in identifying Politically Exposed Persons (PEPs) and victims in legal and financial documents. Always respond with valid JSON only, no other text.
+
+{prompt}"""
+            
+            response = self.model.generate_content(
+                full_prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=2000,
+                )
             )
             
-            content = response.choices[0].message.content
+            content = response.text
             
             # Extract JSON from response
             json_match = re.search(r'\{[\s\S]*\}', content)
@@ -149,7 +145,7 @@ Respond in JSON format:
                 return json.loads(json_match.group())
                 
         except Exception as e:
-            print(f"    Warning: GPT API call failed: {e}")
+            print(f"    Warning: Gemini API call failed: {e}")
             
         return None
     
@@ -171,7 +167,7 @@ Respond in JSON format:
         
         for i, chunk in enumerate(text_chunks):
             prompt = self._extract_entities_prompt(chunk, document_context)
-            result = self._call_gpt(prompt)
+            result = self._call_gemini(prompt)
             
             if result and "entities" in result:
                 for entity_data in result["entities"]:
@@ -198,7 +194,7 @@ Respond in JSON format:
                     surrounding,
                     document_context
                 )
-                result = self._call_gpt(prompt)
+                result = self._call_gemini(prompt)
                 
                 if result and "entities" in result:
                     for entity_data in result["entities"]:
@@ -322,4 +318,3 @@ def classify_entities(pdf_doc: PDFDocument,
     """Convenience function to classify entities in a document"""
     classifier = AIClassifier(api_key)
     return classifier.classify_document(pdf_doc, unredaction_results)
-

@@ -59,9 +59,9 @@ def validate_environment() -> bool:
     """Validate that required tools and configurations are available"""
     issues = []
     
-    # Check OpenAI API key
-    if not config.OPENAI_API_KEY:
-        issues.append("OPENAI_API_KEY not set. Create a .env file with your API key.")
+    # Check Gemini API key
+    if not config.GEMINI_API_KEY:
+        issues.append("GEMINI_API_KEY not set. Create a .env file with your API key.")
     
     # Check tesseract
     try:
@@ -81,8 +81,8 @@ def validate_environment() -> bool:
         for issue in issues:
             print(f"  • {issue}")
         
-        if "OPENAI_API_KEY" in str(issues):
-            print(f"\n{Fore.RED}Cannot proceed without OpenAI API key.{Style.RESET_ALL}")
+        if "GEMINI_API_KEY" in str(issues):
+            print(f"\n{Fore.RED}Cannot proceed without Gemini API key.{Style.RESET_ALL}")
             return False
     
     return True
@@ -195,7 +195,7 @@ def run_pipeline(args) -> Dict:
     
     all_entities: List[ClassifiedEntity] = []
     
-    if config.OPENAI_API_KEY:
+    if config.GEMINI_API_KEY:
         classifier = AIClassifier()
         
         for pdf_doc in pdf_docs:
@@ -261,7 +261,8 @@ Examples:
 
 Environment:
   Create a .env file with:
-    OPENAI_API_KEY=your-api-key-here
+    GEMINI_API_KEY=your-api-key-here
+  Get your key at: https://aistudio.google.com/apikey
         """
     )
     

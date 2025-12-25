@@ -17,7 +17,7 @@ A powerful Python tool that crawls websites to find PDFs, detects and attempts t
   - OCR with image enhancement
   - Font analysis
   - Image processing (contrast, thresholding, edge detection)
-- **🤖 AI Classification** - Uses GPT-4 to classify entities as:
+- **🤖 AI Classification** - Uses Google Gemini to classify entities as:
   - **PEP** (Politically Exposed Person) - politicians, officials, executives
   - **VICTIM** - victims of fraud, abuse, or wrongdoing
 - **📊 Organized Reports** - Generates comprehensive tables in Excel/CSV format
@@ -53,11 +53,11 @@ sudo pacman -S tesseract poppler
 
 ### 3. Configure API key
 
-Copy the template and add your OpenAI API key:
+Copy the template and add your Gemini API key (get one at https://aistudio.google.com/apikey):
 
 ```bash
 cp env.template .env
-# Edit .env and add your OPENAI_API_KEY
+# Edit .env and add your GEMINI_API_KEY
 ```
 
 ## Usage
@@ -158,7 +158,7 @@ Redaction Area → Try PDF layer extraction
 
 ### 4. AI Classification
 ```
-Extracted Text → GPT-4 Analysis
+Extracted Text → Gemini Analysis
       ↓
 Entity Extraction → Name, Email, Context
       ↓
@@ -219,7 +219,7 @@ OCR_DPI = 300              # Resolution for OCR
 OCR_LANG = "eng"           # Tesseract language
 
 # AI
-OPENAI_MODEL = "gpt-4-turbo-preview"
+GEMINI_MODEL = "gemini-1.5-flash"
 ```
 
 ## Limitations & Ethics
